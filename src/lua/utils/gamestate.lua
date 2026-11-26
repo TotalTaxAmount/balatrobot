@@ -771,6 +771,7 @@ function gamestate.get_gamestate()
   if G.GAME then
     state_data.round_num = G.GAME.round or 0
     state_data.ante_num = (G.GAME.round_resets and G.GAME.round_resets.ante) or 0
+    state_data.skips = G.GAME.skips or 0
     state_data.money = G.GAME.dollars or 0
     state_data.won = G.GAME.won
 
