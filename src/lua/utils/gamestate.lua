@@ -282,6 +282,35 @@ local function extract_card_value(card)
   return value
 end
 
+---Recursively copies scalar ability fields (numbers/strings/booleans) from a
+---card's ability table. This exposes joker scaling state and permanent card
+---buffs without passing functions/userdata to the client.
+---@param value any
+---@param depth integer
+---@return any|nil
+local function sanitize_ability(value, depth)
+  if depth > 3 then
+    return nil
+  end
+  local kind = type(value)
+  if kind == "number" or kind == "string" or kind == "boolean" then
+    return value
+  end
+  if kind ~= "table" then
+    return nil
+  end
+  local out = {}
+  for key, nested in pairs(value) do
+    if type(key) == "string" and key:sub(1, 2) ~= "__" then
+      local sanitized = sanitize_ability(nested, depth + 1)
+      if sanitized ~= nil then
+        out[key] = sanitized
+      end
+    end
+  end
+  return out
+end
+
 ---Extracts state information from a card
 ---@param card table The card object
 ---@return Card.State state The Card.State object
@@ -302,6 +331,10 @@ local function extract_card_state(card)
   if card.highlighted then
     state.highlight = true
   end
+
+  -- Structured per-instance ability state (joker counters, permanent card
+  -- buffs, etc.). Only scalar values are exposed.
+  state.ability = sanitize_ability(card.ability, 0) or {}
 
   return state
 end
@@ -645,6 +678,7 @@ function gamestate.get_blinds_info()
   if G.P_BLINDS and G.P_BLINDS[small_choice] then
     local small_blind = G.P_BLINDS[small_choice]
     blinds.small.name = small_blind.name or "Small Blind"
+    blinds.small.key = small_choice
     blinds.small.score = math.floor(base_amount * (small_blind.mult or 1) * ante_scaling)
     blinds.small.effect = get_blind_effect_from_ui(small_blind)
 
@@ -669,6 +703,7 @@ function gamestate.get_blinds_info()
   if G.P_BLINDS and G.P_BLINDS[big_choice] then
     local big_blind = G.P_BLINDS[big_choice]
     blinds.big.name = big_blind.name or "Big Blind"
+    blinds.big.key = big_choice
     blinds.big.score = math.floor(base_amount * (big_blind.mult or 1.5) * ante_scaling)
     blinds.big.effect = get_blind_effect_from_ui(big_blind)
 
@@ -693,6 +728,7 @@ function gamestate.get_blinds_info()
   if boss_choice and G.P_BLINDS and G.P_BLINDS[boss_choice] then
     local boss_blind = G.P_BLINDS[boss_choice]
     blinds.boss.name = boss_blind.name or "Boss Blind"
+    blinds.boss.key = boss_choice
     blinds.boss.score = math.floor(base_amount * (boss_blind.mult or 2) * ante_scaling)
     blinds.boss.effect = get_blind_effect_from_ui(boss_blind)
 
@@ -786,6 +822,11 @@ function gamestate.get_gamestate()
   -- Cards remaining in deck
   if G.deck then
     state_data.cards = extract_area(G.deck)
+  end
+
+  -- Discard pile (cards played/discarded this round; not reshuffled)
+  if G.discard then
+    state_data.discard = extract_area(G.discard)
   end
 
   -- Hand (count is 0 during not playing phase)
