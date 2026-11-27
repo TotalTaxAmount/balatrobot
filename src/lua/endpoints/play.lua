@@ -129,11 +129,10 @@ return {
             return true
           end
 
-          -- Wait for first and last scoring rows (blind1/bottom) to be
-          -- added. Cash-out removes G.round_eval, so returning before every
-          -- row callback has run leaves nil-index crashes behind.
+          -- Wait for the first scoring row and the cash-out button. The
+          -- bottom evaluation row is the cash-out button itself; there is no
+          -- dollar_bottom row.
           local has_blind1 = G.round_eval:get_UIE_by_ID("dollar_blind1") ~= nil
-          local has_bottom = G.round_eval:get_UIE_by_ID("dollar_bottom") ~= nil
 
           -- Wait for cash_out_button to ensure the last scoring row (bottom) has been processed
           local has_cash_out_button = false
@@ -145,7 +144,7 @@ return {
           end
 
           -- Both first and last scoring rows must be present
-          if has_blind1 and has_bottom and has_cash_out_button then
+          if has_blind1 and has_cash_out_button then
             local state_data = BB_GAMESTATE.get_gamestate()
             sendDebugMessage("Return play() - cash out", "BB.ENDPOINTS")
             send_response(state_data)
