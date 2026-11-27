@@ -827,6 +827,8 @@ function gamestate.get_gamestate()
         chips = G.GAME.blind.chips or 0,
         mult = G.GAME.blind.mult or 0,
         effect = G.GAME.blind.effect or "",
+        -- The Mouth stores the first hand type played this round here.
+        only_hand = G.GAME.blind.only_hand or nil,
       }
     end
   end

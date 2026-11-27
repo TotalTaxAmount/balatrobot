@@ -164,6 +164,14 @@ local function normalize_card(card, spec, is_playing)
   end
 
   if is_playing then
+    if spec.enhancement then
+      local center = G.P_CENTERS and G.P_CENTERS[ENHANCEMENT_MAP[spec.enhancement]]
+      -- Re-assert the enhancement on the created object. Normalization is
+      -- object-based, so this can never land on a different card.
+      if center and card.config and card.config.center ~= center and card.set_ability then
+        card:set_ability(center, nil, true)
+      end
+    end
     if spec.seal then
       card.seal = SEAL_MAP[spec.seal]
     else
@@ -236,19 +244,63 @@ local function add_spec(spec)
 
   local ok, result = pcall(SMODS.add_card, params)
   if not ok or not result then
-    return false, tostring(result)
+    return nil, tostring(result)
   end
 
+  if spec.id then
+    result.sort_id = spec.id
+    G.sort_id = math.max(G.sort_id or 0, spec.id)
+  end
   normalize_card(result, spec, is_playing)
-  return true
+  return result
 end
 
-local function normalize_all(cards, jokers)
-  for index, spec in ipairs(cards) do
-    normalize_card(G.hand.cards[index], spec, true)
+-- Move a freshly created card into the requested area. SMODS.add_card puts
+-- playing cards in the hand; deck/discard restoration needs them elsewhere.
+local function place_card(card, area)
+  if not card or not area or not area.cards then
+    return
   end
-  for index, spec in ipairs(jokers) do
-    normalize_card(G.jokers.cards[index], spec, false)
+  if card.area and card.area ~= area and card.area.cards then
+    for index = #card.area.cards, 1, -1 do
+      if card.area.cards[index] == card then
+        table.remove(card.area.cards, index)
+        break
+      end
+    end
+    if card.area.config then
+      card.area.config.card_count = #card.area.cards
+    end
+  end
+  for index = #area.cards, 1, -1 do
+    if area.cards[index] == card then
+      table.remove(area.cards, index)
+    end
+  end
+  card.area = area
+  area.cards[#area.cards + 1] = card
+  if area.config then
+    area.config.card_count = #area.cards
+  end
+end
+
+local function install_area(area, specs, warnings, label)
+  local installed = {}
+  for index, spec in ipairs(specs) do
+    local card, error_message = add_spec(spec)
+    if card then
+      place_card(card, area)
+      installed[#installed + 1] = card
+    else
+      warnings[#warnings + 1] = label .. "[" .. (index - 1) .. "] " .. tostring(error_message)
+    end
+  end
+  return installed
+end
+
+local function normalize_list(created, specs, is_playing)
+  for index, spec in ipairs(specs) do
+    normalize_card(created[index], spec, is_playing)
   end
 end
 
@@ -275,6 +327,10 @@ return {
     hand_size = { type = "integer", required = false, description = "Hand size limit" },
     jokers = { type = "array", required = false, items = "table", description = "Jokers to install, in order" },
     cards = { type = "array", required = false, items = "table", description = "Hand cards to install, in order" },
+    deck = { type = "array", required = false, items = "table", description = "Draw pile, top card first" },
+    discard = { type = "array", required = false, items = "table", description = "Discard pile, in order" },
+    only_hand = { type = "string", required = false, description = "The Mouth's locked hand type" },
+    hands_played = { type = "integer", required = false, description = "Hands played this round" },
     hand_levels = { type = "table", required = false, description = "Per-hand level data" },
   },
 
@@ -293,39 +349,74 @@ return {
       return
     end
 
+    -- A blind whose target is already met is not a playable decision state.
+    -- Restoring it can race the round-evaluation UI and crash the game.
+    if args.score and G.GAME.blind and (G.GAME.blind.chips or 0) > 0
+      and args.score >= G.GAME.blind.chips then
+      send_response({
+        message = "restore() state already meets the blind target",
+        name = BB_ERROR_NAMES.INVALID_STATE,
+      })
+      return
+    end
+
     local jokers = args.jokers or {}
     local cards = args.cards or {}
+    local deck = args.deck or {}
+    local discard = args.discard or {}
 
     -- Limits must be raised before adding cards, especially for replay boards
     -- with more than the vanilla 5 jokers / 8 hand cards.
+    local hand_limit = math.max(args.hand_size or 0, #cards, #deck + #discard, 8)
     set_limit(G.jokers, args.joker_slots or #jokers)
-    set_limit(G.hand, args.hand_size or #cards)
+    set_limit(G.hand, hand_limit)
+    set_limit(G.deck, math.max(#deck, 52))
+    set_limit(G.discard, math.max(#discard, 52))
 
     clear_area(G.jokers)
     clear_area(G.consumeables)
+    clear_area(G.deck)
+    clear_area(G.discard)
+    clear_area(G.hand)
     G.GAME.tags = {}
     G.GAME.round_resets.blind_tags = {}
 
     local warnings = {}
-    for index, spec in ipairs(jokers) do
-      local ok, error_message = add_spec(spec)
-      if not ok then
-        warnings[#warnings + 1] = "joker[" .. (index - 1) .. "] " .. tostring(error_message)
-      end
-    end
+    local joker_cards = install_area(G.jokers, jokers, warnings, "joker")
 
-    -- Hand-size jokers can trigger a refill while being added; set the exact
-    -- limit and clear again so the replay hand is exactly the cards below.
-    set_limit(G.hand, args.hand_size or #cards)
+    -- Hand-size jokers can trigger a refill while being added; clear whatever
+    -- they dealt before installing the captured piles.
+    set_limit(G.hand, hand_limit)
     clear_area(G.hand)
-    for index, spec in ipairs(cards) do
-      local ok, error_message = add_spec(spec)
-      if not ok then
-        warnings[#warnings + 1] = "card[" .. (index - 1) .. "] " .. tostring(error_message)
-      end
-    end
 
-    normalize_all(cards, jokers)
+    -- `deck` is given top card first, while Balatro's G.deck.cards is
+    -- bottom-first (the tail is drawn next), so install it reversed.
+    local deck_specs = {}
+    for index = #deck, 1, -1 do
+      deck_specs[#deck_specs + 1] = deck[index]
+    end
+    local deck_cards = install_area(G.deck, deck_specs, warnings, "deck")
+    local discard_cards = install_area(G.discard, discard, warnings, "discard")
+
+    -- Installing deck/discard cards transiently puts them in the hand.
+    clear_area(G.hand)
+    local hand_cards = install_area(G.hand, cards, warnings, "card")
+
+    -- Guarantee the captured order even if SMODS inserted cards elsewhere.
+    G.jokers.cards = joker_cards
+    G.jokers.config.card_count = #joker_cards
+    G.hand.cards = hand_cards
+    G.hand.config.card_count = #hand_cards
+    G.deck.cards = deck_cards
+    G.deck.config.card_count = #deck_cards
+    G.discard.cards = discard_cards
+    G.discard.config.card_count = #discard_cards
+    set_limit(G.hand, args.hand_size or #cards)
+
+    normalize_list(hand_cards, cards, true)
+    normalize_list(joker_cards, jokers, false)
+    normalize_list(deck_cards, deck_specs, true)
+    normalize_list(discard_cards, discard, true)
 
     if args.hand_levels and G.GAME.hands then
       for name, level in pairs(args.hand_levels) do
@@ -361,8 +452,11 @@ return {
     if args.skips then
       G.GAME.skips = args.skips
     end
-    G.GAME.current_round.hands_played = 0
+    G.GAME.current_round.hands_played = args.hands_played or 0
     G.GAME.current_round.discards_used = 0
+    if G.GAME.blind and G.GAME.blind.name == "The Mouth" then
+      G.GAME.blind.only_hand = args.only_hand or false
+    end
 
     if #warnings > 0 then
       sendDebugMessage("restore warnings: " .. table.concat(warnings, "; "), "BB.ENDPOINTS")
@@ -373,7 +467,10 @@ return {
       blocking = false,
       func = function()
         if G.STATE_COMPLETE and not G.CONTROLLER.locked then
-          normalize_all(cards, jokers)
+          normalize_list(hand_cards, cards, true)
+          normalize_list(joker_cards, jokers, false)
+          normalize_list(deck_cards, deck_specs, true)
+          normalize_list(discard_cards, discard, true)
           sendDebugMessage("Return restore()", "BB.ENDPOINTS")
           local state_data = BB_GAMESTATE.get_gamestate()
           if #warnings > 0 then

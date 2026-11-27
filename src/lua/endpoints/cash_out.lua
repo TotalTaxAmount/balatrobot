@@ -25,7 +25,19 @@ return {
   ---@param send_response fun(response: Response.Endpoint)
   execute = function(_, send_response)
     sendDebugMessage("Init cash_out()", "BB.ENDPOINTS")
-    G.FUNCS.cash_out({ config = {} })
+    -- Let every round-evaluation row event finish before removing
+    -- G.round_eval; cashing out mid-animation leaves pending row callbacks
+    -- that index a nil G.round_eval and crash the game.
+    G.E_MANAGER:add_event(Event({
+      trigger = "after",
+      delay = 1.2,
+      func = function()
+        if G.STATE == G.STATES.ROUND_EVAL and G.round_eval then
+          G.FUNCS.cash_out({ config = {} })
+        end
+        return true
+      end,
+    }))
 
     local num_items = function(area)
       local count = 0
