@@ -39,33 +39,19 @@ return {
       end,
     }))
 
-    local num_items = function(area)
-      local count = 0
-      if area and area.cards then
-        for _, v in ipairs(area.cards) do
-          if v.children.buy_button and v.children.buy_button.definition then
-            count = count + 1
-          end
-        end
-      end
-      return count
-    end
-
-    -- Wait for SHOP state after state transition completes
+    -- Wait for SHOP state after state transition completes. Do not wait for
+    -- purchasable items: a fully bought-out or empty shop is still a valid
+    -- stop point, and requiring items made the endpoint hang there.
     G.E_MANAGER:add_event(Event({
       trigger = "condition",
       blocking = false,
       func = function()
-        local done = false
         if G.STATE == G.STATES.SHOP and G.STATE_COMPLETE then
-          done = num_items(G.shop_booster) > 0 or num_items(G.shop_jokers) > 0 or num_items(G.shop_vouchers) > 0
-          if done then
-            sendDebugMessage("Return cash_out() - reached SHOP state", "BB.ENDPOINTS")
-            send_response(BB_GAMESTATE.get_gamestate())
-            return done
-          end
+          sendDebugMessage("Return cash_out() - reached SHOP state", "BB.ENDPOINTS")
+          send_response(BB_GAMESTATE.get_gamestate())
+          return true
         end
-        return done
+        return false
       end,
     }))
   end,
