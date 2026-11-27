@@ -18,12 +18,14 @@ BB_ENDPOINTS = {
   -- Game control endpoints
   "src/lua/endpoints/set.lua",
   "src/lua/endpoints/add.lua",
+  "src/lua/endpoints/restore.lua",
   -- Gameplay endpoints
   "src/lua/endpoints/menu.lua",
   "src/lua/endpoints/start.lua",
   -- Blind selection endpoints
   "src/lua/endpoints/skip.lua",
   "src/lua/endpoints/select.lua",
+  "src/lua/endpoints/force_blind.lua",
   -- Play/discard endpoints
   "src/lua/endpoints/play.lua",
   "src/lua/endpoints/discard.lua",

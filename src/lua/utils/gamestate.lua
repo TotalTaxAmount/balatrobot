@@ -814,6 +814,21 @@ function gamestate.get_gamestate()
 
     -- Blinds info
     state_data.blinds = gamestate.get_blinds_info()
+
+    -- Active blind object. `blinds` describes the blind choices; this is the
+    -- blind actually being played (its boss key and real chip target).
+    if G.GAME.blind then
+      state_data.active_blind = {
+        key = G.GAME.blind.config
+          and G.GAME.blind.config.blind
+          and G.GAME.blind.config.blind.key
+          or nil,
+        name = G.GAME.blind.name or "",
+        chips = G.GAME.blind.chips or 0,
+        mult = G.GAME.blind.mult or 0,
+        effect = G.GAME.blind.effect or "",
+      }
+    end
   end
 
   -- Always available areas

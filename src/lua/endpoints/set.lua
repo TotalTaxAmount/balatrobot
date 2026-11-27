@@ -12,6 +12,8 @@
 ---@field hands integer? New number of hands left number
 ---@field discards integer? New number of discards left number
 ---@field shop boolean? Re-stock shop with new items
+---@field ante_scaling number? Blind score multiplier for the current ante
+---@field boss string? Boss blind key (e.g. bl_flint) for the current ante
 
 -- ==========================================================================
 -- Set Endpoint
@@ -60,6 +62,16 @@ return {
       required = false,
       description = "Re-stock shop with new items",
     },
+    ante_scaling = {
+      type = "number",
+      required = false,
+      description = "Blind score multiplier for the current ante",
+    },
+    boss = {
+      type = "string",
+      required = false,
+      description = "Boss blind key for the current ante (e.g. bl_flint)",
+    },
   },
 
   requires_state = nil,
@@ -87,6 +99,8 @@ return {
       and args.hands == nil
       and args.discards == nil
       and args.shop == nil
+      and args.ante_scaling == nil
+      and args.boss == nil
     then
       send_response({
         message = "Must provide at least one field to set",
@@ -165,6 +179,32 @@ return {
         return
       end
       G.GAME.current_round.discards_left = args.discards
+    end
+
+    if args.ante_scaling then
+      if args.ante_scaling < 0 then
+        send_response({
+          message = "Ante scaling must be non-negative",
+          name = BB_ERROR_NAMES.BAD_REQUEST,
+        })
+        return
+      end
+      if not G.GAME.starting_params then
+        G.GAME.starting_params = {}
+      end
+      G.GAME.starting_params.ante_scaling = args.ante_scaling
+    end
+
+    if args.boss then
+      if not G.P_BLINDS or not G.P_BLINDS[args.boss] then
+        send_response({
+          message = "Unknown boss blind key: " .. tostring(args.boss),
+          name = BB_ERROR_NAMES.BAD_REQUEST,
+        })
+        return
+      end
+      G.GAME.round_resets.blind_choices = G.GAME.round_resets.blind_choices or {}
+      G.GAME.round_resets.blind_choices.Boss = args.boss
     end
 
     if args.shop then
