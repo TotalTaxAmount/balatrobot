@@ -330,6 +330,7 @@ return {
     deck = { type = "array", required = false, items = "table", description = "Draw pile, top card first" },
     discard = { type = "array", required = false, items = "table", description = "Discard pile, in order" },
     only_hand = { type = "string", required = false, description = "The Mouth's locked hand type" },
+    blind_hands = { type = "array", required = false, items = "string", description = "The Eye's already-played hand types" },
     hands_played = { type = "integer", required = false, description = "Hands played this round" },
     hand_levels = { type = "table", required = false, description = "Per-hand level data" },
   },
@@ -456,6 +457,13 @@ return {
     G.GAME.current_round.discards_used = 0
     if G.GAME.blind and G.GAME.blind.name == "The Mouth" then
       G.GAME.blind.only_hand = args.only_hand or false
+    end
+    if G.GAME.blind and G.GAME.blind.name == "The Eye" then
+      local blind_hands = {}
+      for _, name in ipairs(args.blind_hands or {}) do
+        blind_hands[name] = true
+      end
+      G.GAME.blind.hands = blind_hands
     end
 
     if #warnings > 0 then

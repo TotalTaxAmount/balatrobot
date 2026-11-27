@@ -829,6 +829,10 @@ function gamestate.get_gamestate()
         effect = G.GAME.blind.effect or "",
         -- The Mouth stores the first hand type played this round here.
         only_hand = G.GAME.blind.only_hand or nil,
+        -- The Eye stores the hand types already played this round here.
+        hands = G.GAME.blind.name == "The Eye"
+          and (G.GAME.blind.hands or {})
+          or nil,
       }
     end
   end
