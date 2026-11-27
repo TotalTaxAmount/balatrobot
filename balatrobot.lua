@@ -4,6 +4,39 @@ assert(SMODS.load_file("src/lua/settings.lua"))() -- define BB_SETTINGS
 -- Configure Balatro with appropriate settings from environment variables
 BB_SETTINGS.setup()
 
+-- Guard stale round-evaluation callbacks. `Game:update_round_eval` queues an
+-- immediate event that keeps checking G.round_eval; cashing out (or entering
+-- endless mode) can remove G.round_eval before that callback runs, which
+-- crashes at `G.round_eval.alignment` / `G.round_eval.T`. Wrap only the
+-- events created by that update function and complete them when the UI is
+-- already gone.
+if Game and Game.update_round_eval and EventManager and not Game.__bb_round_eval_guard then
+  local in_round_eval_update = false
+  local original_update_round_eval = Game.update_round_eval
+  Game.update_round_eval = function(self, dt)
+    in_round_eval_update = true
+    local ok, result = pcall(original_update_round_eval, self, dt)
+    in_round_eval_update = false
+    if not ok then error(result) end
+    return result
+  end
+  Game.__bb_round_eval_guard = true
+
+  local original_add_event = EventManager.add_event
+  EventManager.add_event = function(self, event, queue, front)
+    if in_round_eval_update and event and event.func then
+      local func = event.func
+      event.func = function(...)
+        if G.round_eval == nil then
+          return true
+        end
+        return func(...)
+      end
+    end
+    return original_add_event(self, event, queue, front)
+  end
+end
+
 -- Endpoints for the BalatroBot API
 BB_ENDPOINTS = {
   -- Health endpoint
